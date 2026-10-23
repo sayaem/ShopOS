@@ -1,0 +1,6 @@
+{
+  "name": "ShopOS",
+  "description": "Complete offline-first shop management & POS for retail stores, inventory, dues, and reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
