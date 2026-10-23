@@ -1,5 +1,6 @@
 package com.example.shopos.ui.screens
 
+import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -22,6 +23,7 @@ import com.example.shopos.ui.components.ShopOSCard
 import com.example.shopos.ui.components.ShopOSTopBar
 import com.example.shopos.ui.theme.*
 import com.example.shopos.ui.viewmodel.ShopViewModel
+import kotlinx.coroutines.launch
 
 @Composable
 fun BackupRestoreScreen(
@@ -29,6 +31,10 @@ fun BackupRestoreScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var showRestoreDialog by remember { mutableStateOf(false) }
+    var restoreJsonInput by remember { mutableStateOf("") }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         topBar = {
@@ -58,15 +64,25 @@ fun BackupRestoreScreen(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Create a versioned JSON/SQLite snapshot of all your products, sales history, customer and supplier ledgers, expenses and cashbook entries.",
+                            text = "Generate a complete, versioned JSON backup of your products, customer ledgers, sales history, and business profile.",
                             style = MaterialTheme.typography.bodySmall.copy(color = ShopTextMedium)
                         )
                         Spacer(modifier = Modifier.height(14.dp))
                         ShopOSButton(
-                            text = "Create Backup Now",
+                            text = "Export Backup Now",
                             icon = Icons.Outlined.CloudUpload,
                             onClick = {
-                                Toast.makeText(context, "Backup exported successfully: shopos_backup_20261023.json", Toast.LENGTH_LONG).show()
+                                coroutineScope.launch {
+                                    val json = viewModel.repository.exportBackupJson()
+                                    val sendIntent = Intent().apply {
+                                        action = Intent.ACTION_SEND
+                                        putExtra(Intent.EXTRA_TITLE, "ShopOS_Backup_${System.currentTimeMillis()}.json")
+                                        putExtra(Intent.EXTRA_TEXT, json)
+                                        type = "application/json"
+                                    }
+                                    context.startActivity(Intent.createChooser(sendIntent, "Save or Share Backup File"))
+                                    statusMessage = "Backup created successfully!"
+                                }
                             }
                         )
                     }
@@ -77,7 +93,7 @@ fun BackupRestoreScreen(
                 ShopOSCard(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(18.dp)) {
                         Text(
-                            text = "Restore from Backup",
+                            text = "Restore Database",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = ShopTextDark
@@ -85,21 +101,77 @@ fun BackupRestoreScreen(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Restore previous store data. Before importing, backup verification ensures file integrity and prevents corruption.",
+                            text = "Restore store data from a previously exported ShopOS JSON backup file.",
                             style = MaterialTheme.typography.bodySmall.copy(color = ShopTextMedium)
                         )
                         Spacer(modifier = Modifier.height(14.dp))
                         ShopOSButton(
-                            text = "Select Backup File",
+                            text = "Import Backup Data",
                             icon = Icons.Outlined.CloudDownload,
                             isPrimary = false,
-                            onClick = {
-                                Toast.makeText(context, "Select backup file from Device Storage", Toast.LENGTH_SHORT).show()
-                            }
+                            onClick = { showRestoreDialog = true }
                         )
                     }
                 }
             }
+
+            statusMessage?.let { msg ->
+                item {
+                    Text(
+                        text = msg,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            color = ShopSuccessGreen,
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+                }
+            }
+        }
+
+        if (showRestoreDialog) {
+            AlertDialog(
+                onDismissRequest = { showRestoreDialog = false },
+                title = { Text("Restore Backup") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Paste your ShopOS JSON backup text below to restore your store profile and data:",
+                            fontSize = 13.sp,
+                            color = ShopTextMedium
+                        )
+                        OutlinedTextField(
+                            value = restoreJsonInput,
+                            onValueChange = { restoreJsonInput = it },
+                            placeholder = { Text("{\"version\": 1, \"app\": \"ShopOS\" ...}") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(150.dp)
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                val success = viewModel.repository.restoreBackupJson(restoreJsonInput.trim())
+                                if (success) {
+                                    Toast.makeText(context, "Database restored successfully!", Toast.LENGTH_LONG).show()
+                                    showRestoreDialog = false
+                                    statusMessage = "Database restored from backup!"
+                                } else {
+                                    Toast.makeText(context, "Invalid ShopOS backup JSON format", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ShopPrimaryLavender)
+                    ) {
+                        Text("Restore")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showRestoreDialog = false }) { Text("Cancel") }
+                }
+            )
         }
     }
 }

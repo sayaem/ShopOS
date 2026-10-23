@@ -1,8 +1,11 @@
 package com.example.shopos.ui.screens
 
+import android.content.Context
+import android.content.Intent
+import android.print.PrintAttributes
+import android.print.PrintManager
 import android.widget.Toast
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,7 +27,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.shopos.data.model.Sale
 import com.example.shopos.data.model.SaleItem
-import com.example.shopos.ui.components.ShopOSButton
 import com.example.shopos.ui.components.ShopOSCard
 import com.example.shopos.ui.components.ShopOSTopBar
 import com.example.shopos.ui.theme.*
@@ -50,6 +52,34 @@ fun ReceiptScreen(
         items = itms
     }
 
+    fun generateReceiptText(): String {
+        val s = sale ?: return "Receipt not found"
+        val sb = StringBuilder()
+        sb.append("================================\n")
+        sb.append("         ${profile?.shopName ?: "ShopOS Store"}\n")
+        if (!profile?.address.isNullOrBlank()) sb.append("   ${profile?.address}\n")
+        if (!profile?.phone.isNullOrBlank()) sb.append("      Phone: ${profile?.phone}\n")
+        sb.append("================================\n")
+        sb.append("Invoice: ${s.invoiceNumber}\n")
+        sb.append("Date: ${Formatters.formatDate(s.dateMillis)}\n")
+        sb.append("Customer: ${s.customerName}\n")
+        sb.append("Payment: ${s.paymentMethod}\n")
+        sb.append("--------------------------------\n")
+        items.forEach { itm ->
+            sb.append("${itm.productName}\n")
+            sb.append("  ${itm.quantity.toInt()} x ${Formatters.formatCurrency(itm.unitPrice, currency)} = ${Formatters.formatCurrency(itm.lineTotal, currency)}\n")
+        }
+        sb.append("--------------------------------\n")
+        sb.append("Subtotal: ${Formatters.formatCurrency(s.subtotal, currency)}\n")
+        if (s.discount > 0) sb.append("Discount: ${Formatters.formatCurrency(s.discount, currency)}\n")
+        sb.append("TOTAL: ${Formatters.formatCurrency(s.total, currency)}\n")
+        sb.append("Paid: ${Formatters.formatCurrency(s.paidAmount, currency)}\n")
+        if (s.dueAmount > 0) sb.append("Due Balance: ${Formatters.formatCurrency(s.dueAmount, currency)}\n")
+        sb.append("================================\n")
+        sb.append("    Thank you for shopping with us!\n")
+        return sb.toString()
+    }
+
     Scaffold(
         topBar = {
             ShopOSTopBar(
@@ -66,10 +96,25 @@ fun ReceiptScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Print Button
+                // Print Button (Actual Print or share dialog)
                 Button(
                     onClick = {
-                        Toast.makeText(context, "Receipt sent to printer", Toast.LENGTH_SHORT).show()
+                        val receiptText = generateReceiptText()
+                        try {
+                            val printManager = context.getSystemService(Context.PRINT_SERVICE) as? PrintManager
+                            if (printManager != null) {
+                                val printIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TITLE, "Receipt-${sale?.invoiceNumber ?: "invoice"}")
+                                    putExtra(Intent.EXTRA_TEXT, receiptText)
+                                }
+                                context.startActivity(Intent.createChooser(printIntent, "Print or Send Receipt"))
+                            } else {
+                                Toast.makeText(context, "Print service unavailable on this device", Toast.LENGTH_SHORT).show()
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Printing: Receipt copied to share sheet", Toast.LENGTH_SHORT).show()
+                        }
                     },
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
@@ -93,10 +138,16 @@ fun ReceiptScreen(
                     )
                 }
 
-                // Share Button
+                // Share Button (Actual Android Intent share sheet)
                 OutlinedButton(
                     onClick = {
-                        Toast.makeText(context, "Sharing receipt...", Toast.LENGTH_SHORT).show()
+                        val receiptText = generateReceiptText()
+                        val shareIntent = Intent().apply {
+                            action = Intent.ACTION_SEND
+                            putExtra(Intent.EXTRA_TEXT, receiptText)
+                            type = "text/plain"
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, "Share Receipt via"))
                     },
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.outlinedButtonColors(
@@ -137,7 +188,7 @@ fun ReceiptScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = Formatters.formatCurrency(sale?.total ?: 180.0, currency),
+                        text = Formatters.formatCurrency(sale?.total ?: 0.0, currency),
                         style = MaterialTheme.typography.headlineLarge.copy(
                             fontWeight = FontWeight.Bold,
                             color = ShopTextDark,
@@ -179,7 +230,7 @@ fun ReceiptScreen(
                     Spacer(modifier = Modifier.height(14.dp))
 
                     Text(
-                        text = "Invoice No: ${sale?.invoiceNumber ?: "#S20241026-0012"}",
+                        text = "Invoice No: ${sale?.invoiceNumber ?: "#S0000"}",
                         style = MaterialTheme.typography.bodySmall.copy(
                             color = ShopTextMedium,
                             fontWeight = FontWeight.Medium
@@ -208,60 +259,61 @@ fun ReceiptScreen(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        val displayItems = if (items.isNotEmpty()) items else listOf(
-                            SaleItem(saleId = 1, productId = 1, productName = "Maggi Noodles", unitPrice = 45.0, costBasis = 35.0, quantity = 2.0, lineTotal = 90.0),
-                            SaleItem(saleId = 1, productId = 2, productName = "Coca Cola 500ml", unitPrice = 60.0, costBasis = 48.0, quantity = 1.0, lineTotal = 60.0),
-                            SaleItem(saleId = 1, productId = 6, productName = "Lays Chips", unitPrice = 30.0, costBasis = 22.0, quantity = 1.0, lineTotal = 30.0)
-                        )
+                        if (items.isEmpty()) {
+                            Text(
+                                text = "No items recorded in this invoice",
+                                style = MaterialTheme.typography.bodySmall.copy(color = ShopTextMuted)
+                            )
+                        } else {
+                            items.forEach { itm ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Color(0xFFF2F1FA)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = itm.productName.take(1).uppercase(),
+                                                fontWeight = FontWeight.Bold,
+                                                color = ShopPrimaryLavender
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text(
+                                                text = itm.productName,
+                                                style = MaterialTheme.typography.bodyMedium.copy(
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = ShopTextDark
+                                                )
+                                            )
+                                            Text(
+                                                text = "${itm.quantity.toInt()} x ${Formatters.formatCurrency(itm.unitPrice, currency)}",
+                                                style = MaterialTheme.typography.bodySmall.copy(
+                                                    color = ShopTextMuted,
+                                                    fontSize = 12.sp
+                                                )
+                                            )
+                                        }
+                                    }
 
-                        displayItems.forEach { itm ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(36.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(Color(0xFFF2F1FA)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = itm.productName.take(1).uppercase(),
+                                    Text(
+                                        text = Formatters.formatCurrency(itm.lineTotal, currency),
+                                        style = MaterialTheme.typography.bodyMedium.copy(
                                             fontWeight = FontWeight.Bold,
-                                            color = ShopPrimaryLavender
+                                            color = ShopTextDark
                                         )
-                                    }
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Column {
-                                        Text(
-                                            text = itm.productName,
-                                            style = MaterialTheme.typography.bodyMedium.copy(
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = ShopTextDark
-                                            )
-                                        )
-                                        Text(
-                                            text = "${itm.quantity.toInt()} x ${Formatters.formatCurrency(itm.unitPrice, currency)}",
-                                            style = MaterialTheme.typography.bodySmall.copy(
-                                                color = ShopTextMuted,
-                                                fontSize = 12.sp
-                                            )
-                                        )
-                                    }
-                                }
-
-                                Text(
-                                    text = Formatters.formatCurrency(itm.lineTotal, currency),
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = ShopTextDark
                                     )
-                                )
+                                }
                             }
                         }
 
@@ -275,15 +327,17 @@ fun ReceiptScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text("Subtotal", color = ShopTextMedium, fontSize = 14.sp)
-                            Text(Formatters.formatCurrency(sale?.subtotal ?: 180.0, currency), color = ShopTextDark, fontWeight = FontWeight.SemiBold)
+                            Text(Formatters.formatCurrency(sale?.subtotal ?: 0.0, currency), color = ShopTextDark, fontWeight = FontWeight.SemiBold)
                         }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Discount", color = ShopTextMedium, fontSize = 14.sp)
-                            Text(Formatters.formatCurrency(sale?.discount ?: 0.0, currency), color = ShopTextMedium)
+                        if ((sale?.discount ?: 0.0) > 0) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Discount", color = ShopTextMedium, fontSize = 14.sp)
+                                Text("-${Formatters.formatCurrency(sale?.discount ?: 0.0, currency)}", color = ShopBlushCoral)
+                            }
                         }
                         Spacer(modifier = Modifier.height(6.dp))
                         Row(
@@ -291,7 +345,25 @@ fun ReceiptScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text("Total", fontWeight = FontWeight.Bold, color = ShopTextDark, fontSize = 16.sp)
-                            Text(Formatters.formatCurrency(sale?.total ?: 180.0, currency), fontWeight = FontWeight.Bold, color = ShopTextDark, fontSize = 16.sp)
+                            Text(Formatters.formatCurrency(sale?.total ?: 0.0, currency), fontWeight = FontWeight.Bold, color = ShopTextDark, fontSize = 16.sp)
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Paid Amount", color = ShopTextMedium, fontSize = 14.sp)
+                            Text(Formatters.formatCurrency(sale?.paidAmount ?: 0.0, currency), color = ShopSuccessGreen, fontWeight = FontWeight.SemiBold)
+                        }
+                        if ((sale?.dueAmount ?: 0.0) > 0) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Remaining Due", color = ShopBlushCoral, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text(Formatters.formatCurrency(sale?.dueAmount ?: 0.0, currency), color = ShopBlushCoral, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }

@@ -94,6 +94,9 @@ interface ShopDao {
     @Update
     suspend fun updateCustomer(customer: Customer)
 
+    @Delete
+    suspend fun deleteCustomer(customer: Customer)
+
     @Query("UPDATE customers SET totalDue = :newDue WHERE id = :id")
     suspend fun updateCustomerDue(id: Long, newDue: Double)
 
@@ -112,6 +115,9 @@ interface ShopDao {
 
     @Update
     suspend fun updateSupplier(supplier: Supplier)
+
+    @Delete
+    suspend fun deleteSupplier(supplier: Supplier)
 
     @Query("UPDATE suppliers SET totalPayable = :newPayable WHERE id = :id")
     suspend fun updateSupplierPayable(id: Long, newPayable: Double)

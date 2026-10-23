@@ -34,6 +34,7 @@ fun MoreScreen(
     val context = LocalContext.current
 
     val moreItems = listOf(
+        MoreCardItem("Settings", Icons.Outlined.Settings, "settings"),
         MoreCardItem("Business Profile", Icons.Outlined.PersonOutline, "settings"),
         MoreCardItem("Backup & Restore", Icons.Outlined.CloudUpload, "backup_restore"),
         MoreCardItem("Help & Support", Icons.Outlined.HelpOutline, "help"),
@@ -46,7 +47,6 @@ fun MoreScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(ShopPearlBackground)
-            .padding(bottom = 80.dp)
     ) {
         ShopOSTopBar(
             title = "More"
@@ -122,7 +122,7 @@ fun MoreScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Image(
-                    painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                    painter = painterResource(id = R.drawable.ic_shopos_logo),
                     contentDescription = "ShopOS",
                     modifier = Modifier.size(28.dp)
                 )

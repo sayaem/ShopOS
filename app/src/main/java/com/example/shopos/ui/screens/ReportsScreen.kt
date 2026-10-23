@@ -37,6 +37,7 @@ fun ReportsScreen(
     onBack: (() -> Unit)? = null
 ) {
     val sales by viewModel.sales.collectAsState()
+    val saleItems by viewModel.saleItems.collectAsState()
     val expenses by viewModel.expenses.collectAsState()
     val profile by viewModel.businessProfile.collectAsState()
     val currency = profile?.currencySymbol ?: "৳"
@@ -44,10 +45,31 @@ fun ReportsScreen(
     var selectedPreset by remember { mutableStateOf("30 Days") }
     val presets = listOf("7 Days", "30 Days", "3 Months", "Custom")
 
-    val salesTotal = sales.sumOf { it.total }.let { if (it > 0) it else 125480.0 }
-    val purchaseTotal = 78320.0
-    val expenseTotal = expenses.sumOf { it.amount }.let { if (it > 0) it else 12450.0 }
-    val profitTotal = (salesTotal - purchaseTotal - expenseTotal).coerceAtLeast(24560.0)
+    val cutoffMillis = remember(selectedPreset) {
+        val now = System.currentTimeMillis()
+        when (selectedPreset) {
+            "7 Days" -> now - 7L * 24 * 60 * 60 * 1000
+            "30 Days" -> now - 30L * 24 * 60 * 60 * 1000
+            "3 Months" -> now - 90L * 24 * 60 * 60 * 1000
+            else -> 0L
+        }
+    }
+
+    val periodSales = remember(sales, cutoffMillis) {
+        sales.filter { it.dateMillis >= cutoffMillis }
+    }
+    val periodExpenses = remember(expenses, cutoffMillis) {
+        expenses.filter { it.dateMillis >= cutoffMillis }
+    }
+
+    val periodSalesTotal = remember(periodSales) { periodSales.sumOf { it.total } }
+    val periodExpenseTotal = remember(periodExpenses) { periodExpenses.sumOf { it.amount } }
+
+    val periodSaleIds = remember(periodSales) { periodSales.map { it.id }.toSet() }
+    val periodCOGS = remember(saleItems, periodSaleIds) {
+        saleItems.filter { it.saleId in periodSaleIds }.sumOf { it.costBasis * it.quantity }
+    }
+    val periodProfit = (periodSalesTotal - periodCOGS - periodExpenseTotal)
 
     LazyColumn(
         modifier = Modifier
@@ -88,7 +110,7 @@ fun ReportsScreen(
             }
         }
 
-        // 2x2 Metric Cards
+        // 2x2 Metric Cards (Strictly live DB values)
         item {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(
@@ -97,16 +119,16 @@ fun ReportsScreen(
                 ) {
                     ReportMetricCard(
                         title = "Total Sales",
-                        value = Formatters.formatCurrency(salesTotal, currency),
-                        delta = "12%",
-                        isPositive = true,
+                        value = Formatters.formatCurrency(periodSalesTotal, currency),
+                        delta = "${periodSales.size} sales",
+                        isPositive = periodSalesTotal > 0,
                         modifier = Modifier.weight(1f),
                         onClick = onNavigateToSalesReport
                     )
                     ReportMetricCard(
-                        title = "Total Purchase",
-                        value = Formatters.formatCurrency(purchaseTotal, currency),
-                        delta = "5%",
+                        title = "Cost of Goods",
+                        value = Formatters.formatCurrency(periodCOGS, currency),
+                        delta = if (periodSalesTotal > 0) "${((periodCOGS / periodSalesTotal) * 100).toInt()}%" else "0%",
                         isPositive = true,
                         modifier = Modifier.weight(1f),
                         onClick = onNavigateToProfitLoss
@@ -118,17 +140,17 @@ fun ReportsScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     ReportMetricCard(
-                        title = "Total Profit",
-                        value = Formatters.formatCurrency(profitTotal, currency),
-                        delta = "18%",
-                        isPositive = true,
+                        title = "Net Profit",
+                        value = Formatters.formatCurrency(periodProfit, currency),
+                        delta = if (periodProfit >= 0) "Profit" else "Loss",
+                        isPositive = periodProfit >= 0,
                         modifier = Modifier.weight(1f),
                         onClick = onNavigateToProfitLoss
                     )
                     ReportMetricCard(
                         title = "Expense",
-                        value = Formatters.formatCurrency(expenseTotal, currency),
-                        delta = "3%",
+                        value = Formatters.formatCurrency(periodExpenseTotal, currency),
+                        delta = "${periodExpenses.size} items",
                         isPositive = false,
                         modifier = Modifier.weight(1f),
                         onClick = onNavigateToProfitLoss
@@ -177,7 +199,7 @@ fun ReportsScreen(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text("Sales Report", fontWeight = FontWeight.SemiBold, color = ShopTextDark)
-                            Text("Daily, weekly & product breakdown", fontSize = 12.sp, color = ShopTextMuted)
+                            Text("Daily, weekly & product volume breakdown", fontSize = 12.sp, color = ShopTextMuted)
                         }
                     }
                     Icon(
@@ -220,7 +242,7 @@ fun ReportsScreen(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text("Profit & Loss", fontWeight = FontWeight.SemiBold, color = ShopTextDark)
-                            Text("Revenue, COGS & net margins", fontSize = 12.sp, color = ShopTextMuted)
+                            Text("Revenue, COGS & operating margin", fontSize = 12.sp, color = ShopTextMuted)
                         }
                     }
                     Icon(

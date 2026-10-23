@@ -14,8 +14,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.shopos.data.model.Product
 import com.example.shopos.ui.components.ShopOSFilterChip
+import com.example.shopos.ui.components.ShopOSSearchBar
 import com.example.shopos.ui.components.ShopOSTopBar
 import com.example.shopos.ui.theme.ShopPearlBackground
+import com.example.shopos.ui.theme.ShopPrimaryLavender
 import com.example.shopos.ui.theme.ShopTextDark
 import com.example.shopos.ui.viewmodel.ShopViewModel
 
@@ -29,17 +31,26 @@ fun InventoryScreen(
     val profile by viewModel.businessProfile.collectAsState()
     val currency = profile?.currencySymbol ?: "৳"
 
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearchVisible by remember { mutableStateOf(false) }
     var selectedFilter by remember { mutableStateOf("All") }
     var selectedProductForAdjustment by remember { mutableStateOf<Product?>(null) }
 
     val filterOptions = listOf("All", "In Stock", "Low Stock", "Out of Stock")
 
-    val filteredList = remember(allProducts, selectedFilter) {
+    val filteredList = remember(allProducts, selectedFilter, searchQuery) {
+        val bySearch = if (searchQuery.isBlank()) allProducts else {
+            allProducts.filter {
+                it.name.contains(searchQuery, ignoreCase = true) ||
+                it.category.contains(searchQuery, ignoreCase = true) ||
+                it.barcode.contains(searchQuery, ignoreCase = true)
+            }
+        }
         when (selectedFilter) {
-            "In Stock" -> allProducts.filter { it.currentStock > it.lowStockThreshold }
-            "Low Stock" -> allProducts.filter { it.currentStock in 1.0..it.lowStockThreshold }
-            "Out of Stock" -> allProducts.filter { it.currentStock <= 0 }
-            else -> allProducts
+            "In Stock" -> bySearch.filter { it.currentStock > it.lowStockThreshold }
+            "Low Stock" -> bySearch.filter { it.currentStock in 1.0..it.lowStockThreshold }
+            "Out of Stock" -> bySearch.filter { it.currentStock <= 0 }
+            else -> bySearch
         }
     }
 
@@ -49,11 +60,11 @@ fun InventoryScreen(
                 title = "Inventory",
                 onBack = onBack,
                 actions = {
-                    IconButton(onClick = {}) {
+                    IconButton(onClick = { isSearchVisible = !isSearchVisible }) {
                         Icon(
                             imageVector = Icons.Default.Search,
                             contentDescription = "Search",
-                            tint = ShopTextDark
+                            tint = if (isSearchVisible) ShopPrimaryLavender else ShopTextDark
                         )
                     }
                     IconButton(onClick = onNavigateToAddProduct) {
@@ -73,6 +84,15 @@ fun InventoryScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            if (isSearchVisible) {
+                Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                    ShopOSSearchBar(
+                        query = searchQuery,
+                        onQueryChange = { searchQuery = it },
+                        placeholder = "Search inventory items..."
+                    )
+                }
+            }
             // Filter Chips
             LazyRow(
                 modifier = Modifier

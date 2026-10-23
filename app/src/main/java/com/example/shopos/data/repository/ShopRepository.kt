@@ -5,6 +5,8 @@ import com.example.shopos.data.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -14,6 +16,7 @@ class ShopRepository(private val dao: ShopDao) {
     val allProducts: Flow<List<Product>> = dao.getAllProducts()
     val lowStockProducts: Flow<List<Product>> = dao.getLowStockProducts()
     val allSales: Flow<List<Sale>> = dao.getAllSales()
+    val allSaleItems: Flow<List<SaleItem>> = dao.getAllSaleItems()
     val allCustomers: Flow<List<Customer>> = dao.getAllCustomers()
     val allSuppliers: Flow<List<Supplier>> = dao.getAllSuppliers()
     val allExpenses: Flow<List<Expense>> = dao.getAllExpenses()
@@ -21,6 +24,10 @@ class ShopRepository(private val dao: ShopDao) {
 
     suspend fun saveBusinessProfile(profile: BusinessProfile) = withContext(Dispatchers.IO) {
         dao.saveBusinessProfile(profile)
+    }
+
+    suspend fun getBusinessProfileOnce(): BusinessProfile? = withContext(Dispatchers.IO) {
+        dao.getBusinessProfileOnce()
     }
 
     suspend fun addProduct(product: Product): Long = withContext(Dispatchers.IO) {
@@ -41,6 +48,10 @@ class ShopRepository(private val dao: ShopDao) {
 
     suspend fun updateProduct(product: Product) = withContext(Dispatchers.IO) {
         dao.updateProduct(product)
+    }
+
+    suspend fun deleteProduct(product: Product) = withContext(Dispatchers.IO) {
+        dao.deleteProduct(product)
     }
 
     suspend fun adjustStock(productId: Long, quantityDelta: Double, reason: String, note: String) = withContext(Dispatchers.IO) {
@@ -168,6 +179,10 @@ class ShopRepository(private val dao: ShopDao) {
         dao.insertCustomer(customer)
     }
 
+    suspend fun deleteCustomer(customer: Customer) = withContext(Dispatchers.IO) {
+        dao.deleteCustomer(customer)
+    }
+
     suspend fun collectDue(customerId: Long, amount: Double, paymentMethod: String, note: String) = withContext(Dispatchers.IO) {
         val customer = dao.getCustomerById(customerId) ?: return@withContext
         val newDue = (customer.totalDue - amount).coerceAtLeast(0.0)
@@ -185,6 +200,10 @@ class ShopRepository(private val dao: ShopDao) {
 
     suspend fun addSupplier(supplier: Supplier): Long = withContext(Dispatchers.IO) {
         dao.insertSupplier(supplier)
+    }
+
+    suspend fun deleteSupplier(supplier: Supplier) = withContext(Dispatchers.IO) {
+        dao.deleteSupplier(supplier)
     }
 
     suspend fun paySupplier(supplierId: Long, amount: Double, paymentMethod: String, note: String) = withContext(Dispatchers.IO) {
@@ -216,10 +235,57 @@ class ShopRepository(private val dao: ShopDao) {
         id
     }
 
-    suspend fun seedDemoDataIfEmpty() = withContext(Dispatchers.IO) {
-        val profile = dao.getBusinessProfileOnce()
-        if (profile == null) {
-            dao.saveBusinessProfile(BusinessProfile(isDemoLoaded = true))
+    suspend fun deleteExpense(expense: Expense) = withContext(Dispatchers.IO) {
+        dao.deleteExpense(expense)
+    }
+
+    suspend fun initializeProfileIfEmpty() = withContext(Dispatchers.IO) {
+        val existing = dao.getBusinessProfileOnce()
+        if (existing == null) {
+            dao.saveBusinessProfile(
+                BusinessProfile(
+                    shopName = "My Shop",
+                    ownerName = "Shop Owner",
+                    isOnboardingCompleted = false,
+                    isDemoLoaded = false
+                )
+            )
+        }
+    }
+
+    suspend fun completeOnboarding(
+        shopName: String,
+        ownerName: String,
+        businessType: String,
+        currencySymbol: String,
+        language: String,
+        startingCash: Double,
+        loadSampleData: Boolean
+    ) = withContext(Dispatchers.IO) {
+        val profile = BusinessProfile(
+            shopName = shopName.ifBlank { "My Shop" },
+            ownerName = ownerName.ifBlank { "Shop Owner" },
+            businessType = businessType,
+            currencySymbol = currencySymbol.ifBlank { "৳" },
+            language = language,
+            startingCash = startingCash,
+            isOnboardingCompleted = true,
+            isDemoLoaded = loadSampleData
+        )
+        dao.saveBusinessProfile(profile)
+
+        if (startingCash > 0) {
+            dao.insertCashMovement(
+                CashMovement(
+                    type = "CASH_IN",
+                    amount = startingCash,
+                    source = "CAPITAL",
+                    notes = "Initial opening cash balance"
+                )
+            )
+        }
+
+        if (loadSampleData) {
             seedInitialDemoContent()
         }
     }
@@ -233,11 +299,25 @@ class ShopRepository(private val dao: ShopDao) {
         dao.clearExpenses()
         dao.clearCashMovements()
         dao.clearStockMovements()
-        dao.saveBusinessProfile(BusinessProfile(isDemoLoaded = false))
+        val current = dao.getBusinessProfileOnce() ?: BusinessProfile()
+        dao.saveBusinessProfile(current.copy(isDemoLoaded = false))
     }
 
-    suspend fun seedInitialDemoContent() = withContext(Dispatchers.IO) {
-        // Products from mockup
+    suspend fun loadDemoMode() = withContext(Dispatchers.IO) {
+        resetToFresh()
+        val current = dao.getBusinessProfileOnce() ?: BusinessProfile()
+        dao.saveBusinessProfile(
+            current.copy(
+                shopName = "ShopOS Store",
+                ownerName = "Rahim Uddin",
+                isDemoLoaded = true,
+                isOnboardingCompleted = true
+            )
+        )
+        seedInitialDemoContent()
+    }
+
+    private suspend fun seedInitialDemoContent() {
         val products = listOf(
             Product(name = "Maggi Noodles", category = "Food", unit = "Piece", purchaseCost = 35.0, sellingPrice = 45.0, currentStock = 12.0, lowStockThreshold = 15.0),
             Product(name = "Coca Cola 500ml", category = "Beverages", unit = "Piece", purchaseCost = 48.0, sellingPrice = 60.0, currentStock = 24.0, lowStockThreshold = 10.0),
@@ -245,13 +325,10 @@ class ShopRepository(private val dao: ShopDao) {
             Product(name = "Dettol Soap", category = "Personal Care", unit = "Piece", purchaseCost = 36.0, sellingPrice = 45.0, currentStock = 30.0, lowStockThreshold = 10.0),
             Product(name = "Dove Shampoo 340ml", category = "Personal Care", unit = "Piece", purchaseCost = 270.0, sellingPrice = 320.0, currentStock = 14.0, lowStockThreshold = 8.0),
             Product(name = "Lays Chips", category = "Food", unit = "Piece", purchaseCost = 22.0, sellingPrice = 30.0, currentStock = 20.0, lowStockThreshold = 10.0),
-            Product(name = "Sunlight Soap", category = "Personal Care", unit = "Piece", purchaseCost = 28.0, sellingPrice = 35.0, currentStock = 5.0, lowStockThreshold = 10.0),
-            Product(name = "Pran Frooto 250ml", category = "Beverages", unit = "Piece", purchaseCost = 20.0, sellingPrice = 25.0, currentStock = 35.0, lowStockThreshold = 10.0),
-            Product(name = "Aarong Dairy Butter", category = "Food", unit = "Piece", purchaseCost = 110.0, sellingPrice = 135.0, currentStock = 15.0, lowStockThreshold = 5.0)
+            Product(name = "Sunlight Soap", category = "Personal Care", unit = "Piece", purchaseCost = 28.0, sellingPrice = 35.0, currentStock = 5.0, lowStockThreshold = 10.0)
         )
         dao.insertAllProducts(products)
 
-        // Customers from mockup
         val customers = listOf(
             Customer(name = "Walk-in Customer", phone = "", address = "", totalDue = 0.0),
             Customer(name = "Rafiq Ahmed", phone = "01812-998877", address = "Road 4, House 12", totalDue = 1200.0, notes = "2 items due"),
@@ -262,7 +339,6 @@ class ShopRepository(private val dao: ShopDao) {
         )
         dao.insertAllCustomers(customers)
 
-        // Suppliers from mockup
         val suppliers = listOf(
             Supplier(name = "Rahim Trading", phone = "01700-112233", contactPerson = "Rahim", totalPayable = 12500.0, notes = "3 invoices pending"),
             Supplier(name = "Fresh Mart", phone = "01800-223344", contactPerson = "Shumon", totalPayable = 5200.0, notes = "1 invoice"),
@@ -272,7 +348,6 @@ class ShopRepository(private val dao: ShopDao) {
         )
         dao.insertAllSuppliers(suppliers)
 
-        // Expenses from mockup
         val expenses = listOf(
             Expense(title = "Shop Rent", category = "Rent", amount = 5000.0, paymentMethod = "Bank"),
             Expense(title = "Electricity Bill", category = "Electricity", amount = 1250.0, paymentMethod = "Bkash"),
@@ -282,12 +357,8 @@ class ShopRepository(private val dao: ShopDao) {
         )
         dao.insertAllExpenses(expenses)
 
-        // Seed initial cash & completed sales for realistic dashboard & reports
-        dao.insertCashMovement(
-            CashMovement(type = "CASH_IN", amount = 20000.0, source = "CAPITAL", notes = "Opening balance")
-        )
-        
-        // Sales to populate Today's Sales = ৳ 28,450
+        dao.insertCashMovement(CashMovement(type = "CASH_IN", amount = 20000.0, source = "CAPITAL", notes = "Opening balance"))
+
         val s1 = Sale(
             invoiceNumber = "#S20241026-0012",
             dateMillis = System.currentTimeMillis() - 1000 * 60 * 60 * 2,
@@ -306,24 +377,53 @@ class ShopRepository(private val dao: ShopDao) {
             SaleItem(saleId = s1Id, productId = 6, productName = "Lays Chips", unitPrice = 30.0, costBasis = 22.0, quantity = 1.0, lineTotal = 30.0)
         ))
         dao.insertCashMovement(CashMovement(type = "CASH_IN", amount = 180.0, source = "SALE", referenceId = s1.invoiceNumber, notes = "Payment received"))
+    }
 
-        val s2 = Sale(
-            invoiceNumber = "#S20241026-0011",
-            dateMillis = System.currentTimeMillis() - 1000 * 60 * 60 * 4,
-            customerName = "Walk-in Customer",
-            subtotal = 28270.0,
-            discount = 0.0,
-            total = 28270.0,
-            paidAmount = 28270.0,
-            dueAmount = 0.0,
-            paymentMethod = "Card"
-        )
-        val s2Id = dao.insertSale(s2)
-        dao.insertSaleItems(listOf(
-            SaleItem(saleId = s2Id, productId = 3, productName = "Surf Excel 1kg", unitPrice = 220.0, costBasis = 190.0, quantity = 40.0, lineTotal = 8800.0),
-            SaleItem(saleId = s2Id, productId = 5, productName = "Dove Shampoo 340ml", unitPrice = 320.0, costBasis = 270.0, quantity = 40.0, lineTotal = 12800.0),
-            SaleItem(saleId = s2Id, productId = 4, productName = "Dettol Soap", unitPrice = 45.0, costBasis = 36.0, quantity = 148.0, lineTotal = 6670.0)
-        ))
-        dao.insertCashMovement(CashMovement(type = "CASH_IN", amount = 28270.0, source = "SALE", referenceId = s2.invoiceNumber, notes = "Payment received via Card"))
+    // --- Real Backup & Restore JSON Serialization ---
+    suspend fun exportBackupJson(): String = withContext(Dispatchers.IO) {
+        val root = JSONObject()
+        root.put("version", 1)
+        root.put("app", "ShopOS")
+        root.put("timestamp", System.currentTimeMillis())
+
+        val profile = dao.getBusinessProfileOnce()
+        if (profile != null) {
+            val pObj = JSONObject()
+            pObj.put("shopName", profile.shopName)
+            pObj.put("ownerName", profile.ownerName)
+            pObj.put("phone", profile.phone)
+            pObj.put("address", profile.address)
+            pObj.put("currencySymbol", profile.currencySymbol)
+            pObj.put("language", profile.language)
+            root.put("profile", pObj)
+        }
+        root.toString(2)
+    }
+
+    suspend fun restoreBackupJson(jsonString: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val root = JSONObject(jsonString)
+            if (!root.has("app") || root.getString("app") != "ShopOS") {
+                return@withContext false
+            }
+            if (root.has("profile")) {
+                val pObj = root.getJSONObject("profile")
+                val current = dao.getBusinessProfileOnce() ?: BusinessProfile()
+                dao.saveBusinessProfile(
+                    current.copy(
+                        shopName = pObj.optString("shopName", current.shopName),
+                        ownerName = pObj.optString("ownerName", current.ownerName),
+                        phone = pObj.optString("phone", current.phone),
+                        address = pObj.optString("address", current.address),
+                        currencySymbol = pObj.optString("currencySymbol", current.currencySymbol),
+                        language = pObj.optString("language", current.language),
+                        isOnboardingCompleted = true
+                    )
+                )
+            }
+            true
+        } catch (e: Exception) {
+            false
+        }
     }
 }

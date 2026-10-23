@@ -6,15 +6,17 @@ import androidx.room.PrimaryKey
 @Entity(tableName = "business_profile")
 data class BusinessProfile(
     @PrimaryKey val id: Int = 1,
-    val shopName: String = "ShopOS Store",
+    val shopName: String = "My Shop",
     val ownerName: String = "Rahim Uddin",
-    val email: String = "rahim@shopos.com",
-    val phone: String = "+880 1712-345678",
-    val address: String = "Gulshan-1, Dhaka, Bangladesh",
-    val businessType: String = "Grocery & Retail",
+    val email: String = "owner@shopos.app",
+    val phone: String = "",
+    val address: String = "",
+    val businessType: String = "General Retail",
     val currencySymbol: String = "৳",
     val language: String = "en", // "en" or "bn"
-    val isDemoLoaded: Boolean = true
+    val isDemoLoaded: Boolean = false,
+    val isOnboardingCompleted: Boolean = false,
+    val startingCash: Double = 0.0
 )
 
 @Entity(tableName = "products")

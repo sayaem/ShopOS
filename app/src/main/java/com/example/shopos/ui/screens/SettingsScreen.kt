@@ -34,11 +34,13 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val profile by viewModel.businessProfile.collectAsState()
-    val ownerName = profile?.ownerName ?: "Rahim Uddin"
-    val email = profile?.email ?: "rahim@shopos.com"
+    val ownerName = profile?.ownerName ?: "Shop Owner"
+    val email = profile?.email ?: "owner@shopos.local"
     val language = profile?.language ?: "en"
 
     var showProfileDialog by remember { mutableStateOf(false) }
+    var showResetDemoDialog by remember { mutableStateOf(false) }
+    var showClearDataDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -92,7 +94,7 @@ fun SettingsScreen(
                                 )
                             )
                             Text(
-                                text = email,
+                                text = profile?.shopName ?: "ShopOS Store",
                                 style = MaterialTheme.typography.bodySmall.copy(color = ShopTextMuted)
                             )
                         }
@@ -131,7 +133,7 @@ fun SettingsScreen(
                         SettingsRow(
                             icon = Icons.Outlined.CloudUpload,
                             title = "Backup & Restore",
-                            subtitle = "Last backup: 26 Oct 2024",
+                            subtitle = "Export or import JSON offline backup",
                             onClick = { onNavigateToRoute("backup_restore") }
                         )
                         HorizontalDivider(color = ShopCardBorder, modifier = Modifier.padding(start = 56.dp))
@@ -140,18 +142,74 @@ fun SettingsScreen(
                             title = "Appearance",
                             subtitle = "Light / Pearl Lavender",
                             onClick = {
-                                Toast.makeText(context, "Light Mode Active (Default)", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Light / Pearl theme is active", Toast.LENGTH_SHORT).show()
                             }
                         )
                         HorizontalDivider(color = ShopCardBorder, modifier = Modifier.padding(start = 56.dp))
                         SettingsRow(
                             icon = Icons.Outlined.Notifications,
-                            title = "Notifications",
-                            subtitle = "Manage inventory & due alerts",
+                            title = "Stock & Due Alerts",
+                            subtitle = "Automatic low stock badges enabled",
                             onClick = {
-                                Toast.makeText(context, "Low stock notifications enabled", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Low stock threshold alert system is active", Toast.LENGTH_SHORT).show()
                             }
                         )
+                    }
+                }
+            }
+
+            // Data Management Section
+            item {
+                Text(
+                    text = "Data Management",
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = ShopTextMedium
+                    ),
+                    modifier = Modifier.padding(start = 4.dp, top = 6.dp)
+                )
+            }
+
+            // Fresh Start Option (Clear data)
+            item {
+                ShopOSCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { showClearDataDialog = true }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFFFFF1F2)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.DeleteSweep,
+                                contentDescription = null,
+                                tint = ShopBlushCoral,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Start Fresh (Clear Store Data)",
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = ShopTextDark
+                                )
+                            )
+                            Text(
+                                text = "Clear sample items, sales, and dues for real store usage",
+                                style = MaterialTheme.typography.bodySmall.copy(color = ShopTextMuted)
+                            )
+                        }
                     }
                 }
             }
@@ -160,10 +218,7 @@ fun SettingsScreen(
             item {
                 ShopOSCard(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        viewModel.resetDemoData()
-                        Toast.makeText(context, "Sample retail dataset refreshed!", Toast.LENGTH_SHORT).show()
-                    }
+                    onClick = { showResetDemoDialog = true }
                 ) {
                     Row(
                         modifier = Modifier
@@ -188,14 +243,14 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Reload Sample Data",
+                                text = "Load Sample Retail Data",
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = FontWeight.SemiBold,
                                     color = ShopTextDark
                                 )
                             )
                             Text(
-                                text = "Reload mockup products, dues and sales",
+                                text = "Explore features with sample grocery products and ledger entries",
                                 style = MaterialTheme.typography.bodySmall.copy(color = ShopTextMuted)
                             )
                         }
@@ -204,6 +259,7 @@ fun SettingsScreen(
             }
         }
 
+        // Profile Dialog
         if (showProfileDialog) {
             EditProfileDialog(
                 currentName = profile?.shopName ?: "ShopOS Store",
@@ -215,6 +271,55 @@ fun SettingsScreen(
                 onSave = { name, owner, phone, addr, curr ->
                     viewModel.updateProfile(name, owner, phone, addr, curr, language)
                     showProfileDialog = false
+                    Toast.makeText(context, "Business profile saved", Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
+
+        // Confirm Reset Demo Data
+        if (showResetDemoDialog) {
+            AlertDialog(
+                onDismissRequest = { showResetDemoDialog = false },
+                title = { Text("Load Sample Retail Data?") },
+                text = { Text("This will load realistic demo products, customers, suppliers, and transactions so you can explore all features.") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.resetDemoData()
+                            showResetDemoDialog = false
+                            Toast.makeText(context, "Sample retail dataset loaded!", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ShopPrimaryLavender)
+                    ) {
+                        Text("Load Sample Data")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showResetDemoDialog = false }) { Text("Cancel") }
+                }
+            )
+        }
+
+        // Confirm Clear Store Data
+        if (showClearDataDialog) {
+            AlertDialog(
+                onDismissRequest = { showClearDataDialog = false },
+                title = { Text("Start Fresh?") },
+                text = { Text("This will remove all products, transactions, and ledger entries, leaving an empty store ready for your real business data.") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.clearToEmpty()
+                            showClearDataDialog = false
+                            Toast.makeText(context, "Store cleared. Ready for your products!", Toast.LENGTH_LONG).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ShopBlushCoral)
+                    ) {
+                        Text("Start Fresh")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showClearDataDialog = false }) { Text("Cancel") }
                 }
             )
         }
@@ -324,7 +429,7 @@ fun EditProfileDialog(
                 OutlinedTextField(
                     value = currency,
                     onValueChange = { currency = it },
-                    label = { Text("Currency Symbol (e.g. ৳)") },
+                    label = { Text("Currency Symbol (e.g. ৳ or $)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )

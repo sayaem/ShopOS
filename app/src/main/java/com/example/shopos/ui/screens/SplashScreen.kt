@@ -80,7 +80,7 @@ fun SplashScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Image(
-                    painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                    painter = painterResource(id = R.drawable.ic_shopos_logo),
                     contentDescription = "ShopOS Logo",
                     modifier = Modifier.size(72.dp)
                 )

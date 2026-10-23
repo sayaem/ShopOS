@@ -1,5 +1,6 @@
 package com.example.shopos.ui.screens
 
+import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -27,6 +28,7 @@ import com.example.shopos.ui.components.ShopOSCard
 import com.example.shopos.ui.components.ShopOSTopBar
 import com.example.shopos.ui.theme.*
 import com.example.shopos.ui.viewmodel.ShopViewModel
+import com.example.shopos.util.Formatters
 
 @Composable
 fun ProfitLossScreen(
@@ -34,8 +36,25 @@ fun ProfitLossScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val sales by viewModel.sales.collectAsState()
+    val saleItems by viewModel.saleItems.collectAsState()
+    val expenses by viewModel.expenses.collectAsState()
+    val profile by viewModel.businessProfile.collectAsState()
+    val currency = profile?.currencySymbol ?: "৳"
+
     var selectedFrequency by remember { mutableStateOf("Monthly") }
     val frequencies = listOf("Daily", "Monthly", "Custom")
+
+    val totalSales = remember(sales) { sales.sumOf { it.total } }
+    val totalCOGS = remember(saleItems) { saleItems.sumOf { it.costBasis * it.quantity } }
+    val totalExpenses = remember(expenses) { expenses.sumOf { it.amount } }
+    val grossProfit = (totalSales - totalCOGS)
+    val netProfit = (grossProfit - totalExpenses)
+
+    val grandTotal = (totalSales + totalCOGS + totalExpenses).takeIf { it > 0 } ?: 1.0
+    val salesFraction = (totalSales / grandTotal).toFloat()
+    val cogsFraction = (totalCOGS / grandTotal).toFloat()
+    val expenseFraction = (totalExpenses / grandTotal).toFloat()
 
     Scaffold(
         topBar = {
@@ -44,7 +63,25 @@ fun ProfitLossScreen(
                 onBack = onBack,
                 actions = {
                     IconButton(onClick = {
-                        Toast.makeText(context, "Exported P&L Statement to Downloads", Toast.LENGTH_SHORT).show()
+                        val report = """
+ShopOS Profit & Loss Statement
+Period: $selectedFrequency
+-------------------------------------------
+Total Sales (Revenue): ${Formatters.formatCurrency(totalSales, currency)}
+Cost of Goods Sold (COGS): ${Formatters.formatCurrency(totalCOGS, currency)}
+Gross Profit: ${Formatters.formatCurrency(grossProfit, currency)}
+Operating Expenses: ${Formatters.formatCurrency(totalExpenses, currency)}
+-------------------------------------------
+Net Profit: ${Formatters.formatCurrency(netProfit, currency)}
+Margin: ${if (totalSales > 0) "${((netProfit / totalSales) * 100).toInt()}%" else "0%"}
+Generated on: ${Formatters.formatDate(System.currentTimeMillis())}
+                        """.trimIndent()
+                        val sendIntent = Intent().apply {
+                            action = Intent.ACTION_SEND
+                            putExtra(Intent.EXTRA_TEXT, report)
+                            type = "text/plain"
+                        }
+                        context.startActivity(Intent.createChooser(sendIntent, "Share P&L Statement"))
                     }) {
                         Icon(
                             imageVector = Icons.Outlined.FileDownload,
@@ -97,7 +134,7 @@ fun ProfitLossScreen(
                 }
             }
 
-            // Donut Ring Chart Card
+            // Donut Ring Chart Card (Dynamically computed arcs)
             item {
                 ShopOSCard(modifier = Modifier.fillMaxWidth()) {
                     Column(
@@ -106,7 +143,6 @@ fun ProfitLossScreen(
                             .padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Donut Canvas
                         Box(
                             modifier = Modifier.size(200.dp),
                             contentAlignment = Alignment.Center
@@ -117,38 +153,58 @@ fun ProfitLossScreen(
                                 val arcSize = Size(diameter, diameter)
                                 val topLeft = Offset(strokeWidth / 2, strokeWidth / 2)
 
-                                // Sales arc (purple/blue): 0 to 220 deg
-                                drawArc(
-                                    color = Color(0xFF635BFF),
-                                    startAngle = -90f,
-                                    sweepAngle = 210f,
-                                    useCenter = false,
-                                    topLeft = topLeft,
-                                    size = arcSize,
-                                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                                )
+                                if (totalSales == 0.0 && totalExpenses == 0.0) {
+                                    // Empty state ring
+                                    drawArc(
+                                        color = Color(0xFFE5E7EB),
+                                        startAngle = 0f,
+                                        sweepAngle = 360f,
+                                        useCenter = false,
+                                        topLeft = topLeft,
+                                        size = arcSize,
+                                        style = Stroke(width = strokeWidth)
+                                    )
+                                } else {
+                                    var currentAngle = -90f
 
-                                // COGS arc (coral/peach): 225 to 300 deg
-                                drawArc(
-                                    color = Color(0xFFFF8B72),
-                                    startAngle = 125f,
-                                    sweepAngle = 90f,
-                                    useCenter = false,
-                                    topLeft = topLeft,
-                                    size = arcSize,
-                                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                                )
+                                    // Sales Arc
+                                    val salesSweep = (salesFraction * 360f).coerceAtLeast(10f)
+                                    drawArc(
+                                        color = Color(0xFF635BFF),
+                                        startAngle = currentAngle,
+                                        sweepAngle = salesSweep,
+                                        useCenter = false,
+                                        topLeft = topLeft,
+                                        size = arcSize,
+                                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                                    )
+                                    currentAngle += salesSweep
 
-                                // Expenses arc (blush): 305 to 355 deg
-                                drawArc(
-                                    color = Color(0xFFFF6575),
-                                    startAngle = 220f,
-                                    sweepAngle = 45f,
-                                    useCenter = false,
-                                    topLeft = topLeft,
-                                    size = arcSize,
-                                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                                )
+                                    // COGS Arc
+                                    val cogsSweep = (cogsFraction * 360f).coerceAtLeast(10f)
+                                    drawArc(
+                                        color = Color(0xFFFF8B72),
+                                        startAngle = currentAngle,
+                                        sweepAngle = cogsSweep,
+                                        useCenter = false,
+                                        topLeft = topLeft,
+                                        size = arcSize,
+                                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                                    )
+                                    currentAngle += cogsSweep
+
+                                    // Expenses Arc
+                                    val expSweep = (expenseFraction * 360f).coerceAtLeast(10f)
+                                    drawArc(
+                                        color = Color(0xFFFF6575),
+                                        startAngle = currentAngle,
+                                        sweepAngle = expSweep,
+                                        useCenter = false,
+                                        topLeft = topLeft,
+                                        size = arcSize,
+                                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                                    )
+                                }
                             }
 
                             // Center label
@@ -162,10 +218,10 @@ fun ProfitLossScreen(
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "৳ 24,560",
+                                    text = Formatters.formatCurrency(netProfit, currency),
                                     style = MaterialTheme.typography.titleLarge.copy(
                                         fontWeight = FontWeight.Bold,
-                                        color = ShopTextDark,
+                                        color = if (netProfit >= 0) ShopTextDark else ShopBlushCoral,
                                         fontSize = 20.sp
                                     )
                                 )
@@ -174,28 +230,32 @@ fun ProfitLossScreen(
 
                         Spacer(modifier = Modifier.height(24.dp))
 
-                        // Breakdown Legend Rows
+                        // Breakdown Legend Rows with real percentages
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
+                            val salesPct = if (totalSales > 0) 100 else 0
+                            val cogsPct = if (totalSales > 0) ((totalCOGS / totalSales) * 100).toInt() else 0
+                            val expPct = if (totalSales > 0) ((totalExpenses / totalSales) * 100).toInt() else 0
+
                             BreakdownRow(
                                 color = Color(0xFF635BFF),
-                                label = "Sales",
-                                percent = "78%",
-                                amount = "৳ 1,25,480"
+                                label = "Sales (Revenue)",
+                                percent = "$salesPct%",
+                                amount = Formatters.formatCurrency(totalSales, currency)
                             )
                             BreakdownRow(
                                 color = Color(0xFFFF8B72),
                                 label = "Cost of Goods",
-                                percent = "52%",
-                                amount = "৳ 78,320"
+                                percent = "$cogsPct%",
+                                amount = Formatters.formatCurrency(totalCOGS, currency)
                             )
                             BreakdownRow(
                                 color = Color(0xFFFF6575),
                                 label = "Expenses",
-                                percent = "10%",
-                                amount = "৳ 12,450"
+                                percent = "$expPct%",
+                                amount = Formatters.formatCurrency(totalExpenses, currency)
                             )
                         }
                     }
@@ -215,7 +275,7 @@ fun ProfitLossScreen(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Gross Profit = Net Sales (৳ 1,25,480) - COGS (৳ 78,320) = ৳ 47,160.\nOperating Expenses = ৳ 12,450.\nRealized Net Profit for the period is ৳ 24,560 with an 18% margin.",
+                            text = "Gross Profit = Sales (${Formatters.formatCurrency(totalSales, currency)}) - COGS (${Formatters.formatCurrency(totalCOGS, currency)}) = ${Formatters.formatCurrency(grossProfit, currency)}.\nOperating Expenses = ${Formatters.formatCurrency(totalExpenses, currency)}.\nRealized Net Profit is ${Formatters.formatCurrency(netProfit, currency)}.",
                             style = MaterialTheme.typography.bodySmall.copy(
                                 color = ShopTextMedium,
                                 lineHeight = 18.sp

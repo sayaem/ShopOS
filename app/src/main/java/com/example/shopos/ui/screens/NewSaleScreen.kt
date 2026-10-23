@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.shopos.data.model.Customer
 import com.example.shopos.data.model.Product
 import com.example.shopos.data.repository.ShopRepository
 import com.example.shopos.ui.components.*
@@ -36,13 +37,18 @@ fun NewSaleScreen(
 ) {
     val cartItems by viewModel.cartItems.collectAsState()
     val allProducts by viewModel.products.collectAsState()
+    val customers by viewModel.customers.collectAsState()
     val profile by viewModel.businessProfile.collectAsState()
     val selectedPaymentMethod by viewModel.cartPaymentMethod.collectAsState()
     val discount by viewModel.cartDiscount.collectAsState()
+    val selectedCustomer by viewModel.cartCustomer.collectAsState()
+    val isSubmittingSale by viewModel.isSubmittingSale.collectAsState()
     val currency = profile?.currencySymbol ?: "৳"
 
     var searchQuery by remember { mutableStateOf("") }
     var showProductPicker by remember { mutableStateOf(false) }
+    var showDiscountDialog by remember { mutableStateOf(false) }
+    var showCustomerPicker by remember { mutableStateOf(false) }
 
     val subtotal = cartItems.sumOf { it.lineTotal }
     val total = (subtotal - discount).coerceAtLeast(0.0)
@@ -63,6 +69,13 @@ fun NewSaleScreen(
                 title = "New Sale",
                 onBack = onBack,
                 actions = {
+                    IconButton(onClick = { showCustomerPicker = true }) {
+                        Icon(
+                            imageVector = Icons.Outlined.PersonAdd,
+                            contentDescription = "Assign Customer",
+                            tint = if (selectedCustomer != null) ShopPrimaryLavender else ShopTextDark
+                        )
+                    }
                     IconButton(onClick = { showProductPicker = true }) {
                         Icon(
                             imageVector = Icons.Default.Add,
@@ -81,6 +94,33 @@ fun NewSaleScreen(
                     .navigationBarsPadding()
                     .padding(16.dp)
             ) {
+                // Customer indicator
+                if (selectedCustomer != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Customer: ${selectedCustomer?.name}",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = ShopPrimaryLavender,
+                                fontWeight = FontWeight.Bold
+                            )
+                        )
+                        Text(
+                            text = "Clear",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = ShopBlushCoral,
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            modifier = Modifier.clickable { viewModel.setCartCustomer(null) }
+                        )
+                    }
+                }
+
                 // Summary Block
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -102,16 +142,31 @@ fun NewSaleScreen(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showDiscountDialog = true },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "Discount",
+                            style = MaterialTheme.typography.bodyMedium.copy(color = ShopTextMedium)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit discount",
+                            tint = ShopPrimaryLavender,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
                     Text(
-                        text = "Discount",
-                        style = MaterialTheme.typography.bodyMedium.copy(color = ShopTextMedium)
-                    )
-                    Text(
-                        text = Formatters.formatCurrency(discount, currency),
-                        style = MaterialTheme.typography.bodyMedium.copy(color = ShopTextMedium)
+                        text = "-${Formatters.formatCurrency(discount, currency)}",
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            color = if (discount > 0) ShopBlushCoral else ShopTextMedium,
+                            fontWeight = if (discount > 0) FontWeight.Bold else FontWeight.Normal
+                        )
                     )
                 }
 
@@ -183,7 +238,7 @@ fun NewSaleScreen(
                             onSaleCompleted(saleId)
                         }
                     },
-                    enabled = cartItems.isNotEmpty(),
+                    enabled = cartItems.isNotEmpty() && !isSubmittingSale,
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = ShopPrimaryLavender,
@@ -198,7 +253,7 @@ fun NewSaleScreen(
                         horizontalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = "Complete Sale",
+                            text = if (isSubmittingSale) "Processing..." else "Complete Sale",
                             style = MaterialTheme.typography.labelLarge.copy(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp
@@ -324,7 +379,7 @@ fun NewSaleScreen(
             }
         }
 
-        // Product Picker Bottom Sheet / Dialog
+        // Product Picker
         if (showProductPicker) {
             ProductPickerDialog(
                 products = allProducts,
@@ -332,6 +387,76 @@ fun NewSaleScreen(
                 onDismiss = { showProductPicker = false },
                 onSelect = { prod ->
                     viewModel.addToCart(prod)
+                }
+            )
+        }
+
+        // Discount Dialog
+        if (showDiscountDialog) {
+            var discText by remember { mutableStateOf(discount.toString()) }
+            AlertDialog(
+                onDismissRequest = { showDiscountDialog = false },
+                title = { Text("Set Cart Discount") },
+                text = {
+                    OutlinedTextField(
+                        value = discText,
+                        onValueChange = { discText = it },
+                        label = { Text("Discount Amount ($currency)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val d = discText.toDoubleOrNull() ?: 0.0
+                            viewModel.setDiscount(d)
+                            showDiscountDialog = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ShopPrimaryLavender)
+                    ) {
+                        Text("Apply")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDiscountDialog = false }) { Text("Cancel") }
+                }
+            )
+        }
+
+        // Customer Picker
+        if (showCustomerPicker) {
+            AlertDialog(
+                onDismissRequest = { showCustomerPicker = false },
+                title = { Text("Select Customer") },
+                text = {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(260.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(customers) { cust ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        viewModel.setCartCustomer(cust)
+                                        showCustomerPicker = false
+                                    }
+                                    .padding(8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(cust.name, fontWeight = FontWeight.SemiBold)
+                                Text("Due: ${Formatters.formatCurrency(cust.totalDue, currency)}", fontSize = 12.sp, color = ShopTextMuted)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showCustomerPicker = false }) { Text("Close") }
                 }
             )
         }
@@ -454,27 +579,31 @@ fun ProductPickerDialog(
         onDismissRequest = onDismiss,
         title = { Text("Select Product") },
         text = {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(300.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(products) { prod ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { onSelect(prod) }
-                            .padding(8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(prod.name, fontWeight = FontWeight.SemiBold)
-                            Text("Stock: ${prod.currentStock.toInt()}", fontSize = 12.sp, color = ShopTextMuted)
+            if (products.isEmpty()) {
+                Text("No products in inventory yet. Add products first.")
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(300.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(products) { prod ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onSelect(prod) }
+                                .padding(8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(prod.name, fontWeight = FontWeight.SemiBold)
+                                Text("Stock: ${prod.currentStock.toInt()} ${prod.unit}", fontSize = 12.sp, color = ShopTextMuted)
+                            }
+                            Text(Formatters.formatCurrency(prod.sellingPrice, currency), fontWeight = FontWeight.Bold)
                         }
-                        Text(Formatters.formatCurrency(prod.sellingPrice, currency), fontWeight = FontWeight.Bold)
                     }
                 }
             }

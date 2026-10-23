@@ -34,12 +34,30 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun ShopOSApp(viewModel: ShopViewModel) {
-    // Current navigation route
-    var currentRoute by remember { mutableStateOf("home") }
+    val profile by viewModel.businessProfile.collectAsState()
+
+    // Determine initial route based on onboarding state
+    var currentRoute by remember { mutableStateOf("splash") }
+    var hasDeterminedInitialRoute by remember { mutableStateOf(false) }
     var selectedReceiptSaleId by remember { mutableStateOf<Long?>(null) }
 
-    // Navigation back stack tracking
-    val backStack = remember { mutableStateListOf("home") }
+    // Navigation back stack
+    val backStack = remember { mutableStateListOf<String>() }
+
+    LaunchedEffect(profile) {
+        if (!hasDeterminedInitialRoute && profile != null) {
+            hasDeterminedInitialRoute = true
+            if (profile?.isOnboardingCompleted == true) {
+                currentRoute = "home"
+                backStack.clear()
+                backStack.add("home")
+            } else {
+                currentRoute = "splash"
+                backStack.clear()
+                backStack.add("splash")
+            }
+        }
+    }
 
     fun navigateTo(route: String) {
         if (currentRoute != route) {
@@ -58,7 +76,7 @@ fun ShopOSApp(viewModel: ShopViewModel) {
     val primaryTabs = listOf("home", "products", "sales", "reports", "more")
     val isPrimaryTab = currentRoute in primaryTabs
 
-    BackHandler(enabled = backStack.size > 1) {
+    BackHandler(enabled = backStack.size > 1 && currentRoute != "home" && currentRoute != "splash") {
         popBack()
     }
 
@@ -91,6 +109,20 @@ fun ShopOSApp(viewModel: ShopViewModel) {
             when (currentRoute) {
                 "splash" -> SplashScreen(
                     onContinue = {
+                        if (profile?.isOnboardingCompleted == true) {
+                            backStack.clear()
+                            backStack.add("home")
+                            currentRoute = "home"
+                        } else {
+                            backStack.add("onboarding")
+                            currentRoute = "onboarding"
+                        }
+                    }
+                )
+
+                "onboarding" -> OnboardingScreen(
+                    viewModel = viewModel,
+                    onComplete = {
                         backStack.clear()
                         backStack.add("home")
                         currentRoute = "home"

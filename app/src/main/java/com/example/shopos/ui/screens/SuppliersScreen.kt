@@ -1,13 +1,20 @@
 package com.example.shopos.ui.screens
 
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.outlined.Call
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Payments
 import androidx.compose.material.icons.outlined.Storefront
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,10 +22,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.shopos.data.model.Supplier
+import com.example.shopos.ui.components.ShopOSButton
 import com.example.shopos.ui.components.ShopOSCard
 import com.example.shopos.ui.components.ShopOSSearchBar
 import com.example.shopos.ui.components.ShopOSTopBar
@@ -31,12 +40,14 @@ fun SuppliersScreen(
     viewModel: ShopViewModel,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
     val suppliers by viewModel.suppliers.collectAsState()
     val profile by viewModel.businessProfile.collectAsState()
     val currency = profile?.currencySymbol ?: "৳"
 
     var searchQuery by remember { mutableStateOf("") }
     var showAddDialog by remember { mutableStateOf(false) }
+    var selectedSupplierForDetails by remember { mutableStateOf<Supplier?>(null) }
     var selectedSupplierForPayment by remember { mutableStateOf<Supplier?>(null) }
 
     val filteredSuppliers = remember(suppliers, searchQuery) {
@@ -88,7 +99,7 @@ fun SuppliersScreen(
                     SupplierItemRow(
                         supplier = supplier,
                         currency = currency,
-                        onClick = { selectedSupplierForPayment = supplier }
+                        onClick = { selectedSupplierForDetails = supplier }
                     )
                 }
             }
@@ -101,6 +112,35 @@ fun SuppliersScreen(
                 onAdd = { name, phone, contactPerson, initialPayable ->
                     viewModel.addSupplier(name, phone, contactPerson, initialPayable)
                     showAddDialog = false
+                    Toast.makeText(context, "Supplier $name saved", Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
+
+        // Supplier Details & Quick Actions Dialog
+        selectedSupplierForDetails?.let { supplier ->
+            SupplierDetailDialog(
+                supplier = supplier,
+                currency = currency,
+                onDismiss = { selectedSupplierForDetails = null },
+                onPaySupplier = {
+                    selectedSupplierForDetails = null
+                    selectedSupplierForPayment = supplier
+                },
+                onCall = {
+                    if (supplier.phone.isNotBlank()) {
+                        val dialIntent = Intent(Intent.ACTION_DIAL).apply {
+                            data = Uri.parse("tel:${supplier.phone}")
+                        }
+                        context.startActivity(dialIntent)
+                    } else {
+                        Toast.makeText(context, "No phone number saved for this supplier", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onDelete = {
+                    viewModel.deleteSupplier(supplier)
+                    selectedSupplierForDetails = null
+                    Toast.makeText(context, "Supplier ${supplier.name} removed", Toast.LENGTH_SHORT).show()
                 }
             )
         }
@@ -114,6 +154,7 @@ fun SuppliersScreen(
                 onPay = { amount, method, note ->
                     viewModel.paySupplier(supplier.id, amount, method, note)
                     selectedSupplierForPayment = null
+                    Toast.makeText(context, "Paid ${Formatters.formatCurrency(amount, currency)} to ${supplier.name}", Toast.LENGTH_SHORT).show()
                 }
             )
         }
@@ -165,8 +206,10 @@ fun SupplierItemRow(
                 )
                 Text(
                     text = if (hasPayable) {
-                        if (supplier.notes.isNotBlank()) "Due • ${supplier.notes}" else "Outstanding Payable"
-                    } else "No due",
+                        if (supplier.contactPerson.isNotBlank()) "${supplier.contactPerson} • Due Payable" else "Due Payable"
+                    } else {
+                        if (supplier.contactPerson.isNotBlank()) supplier.contactPerson else "No due"
+                    },
                     style = MaterialTheme.typography.bodySmall.copy(
                         color = if (hasPayable) ShopBlushCoral else ShopTextMuted,
                         fontSize = 11.sp,
@@ -192,6 +235,142 @@ fun SupplierItemRow(
                 modifier = Modifier.size(16.dp)
             )
         }
+    }
+}
+
+@Composable
+fun SupplierDetailDialog(
+    supplier: Supplier,
+    currency: String,
+    onDismiss: () -> Unit,
+    onPaySupplier: () -> Unit,
+    onCall: () -> Unit,
+    onDelete: () -> Unit
+) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFE0F2FE)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Storefront,
+                        contentDescription = null,
+                        tint = ShopInfoBlue,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(text = supplier.name, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                    if (supplier.contactPerson.isNotBlank()) {
+                        Text(text = "Contact: ${supplier.contactPerson}", style = MaterialTheme.typography.bodySmall.copy(color = ShopTextMuted))
+                    }
+                }
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Payable card
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = if (supplier.totalPayable > 0) Color(0xFFFFF1F2) else Color(0xFFF1F5F9))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Outstanding Payable:",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium)
+                        )
+                        Text(
+                            text = Formatters.formatCurrency(supplier.totalPayable, currency),
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = if (supplier.totalPayable > 0) ShopBlushCoral else ShopSuccessGreen
+                            )
+                        )
+                    }
+                }
+
+                if (supplier.phone.isNotBlank()) {
+                    Text(
+                        text = "Phone: ${supplier.phone}",
+                        style = MaterialTheme.typography.bodySmall.copy(color = ShopTextMedium)
+                    )
+                }
+
+                // Call action
+                if (supplier.phone.isNotBlank()) {
+                    OutlinedButton(
+                        onClick = onCall,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Outlined.Call, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Call Supplier (${supplier.phone})", fontSize = 13.sp)
+                    }
+                }
+
+                // Pay supplier button
+                if (supplier.totalPayable > 0) {
+                    ShopOSButton(
+                        text = "Pay Supplier",
+                        icon = Icons.Outlined.Payments,
+                        onClick = onPaySupplier
+                    )
+                }
+
+                // Delete supplier option
+                TextButton(
+                    onClick = { showDeleteConfirm = true },
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                    colors = ButtonDefaults.textButtonColors(contentColor = ShopBlushCoral)
+                ) {
+                    Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Delete Supplier", fontSize = 12.sp)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        }
+    )
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete Supplier?") },
+            text = { Text("Are you sure you want to delete ${supplier.name}?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteConfirm = false
+                        onDelete()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ShopBlushCoral)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+            }
+        )
     }
 }
 

@@ -8,6 +8,7 @@ import com.example.shopos.data.model.*
 import com.example.shopos.data.repository.ShopRepository
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.util.Calendar
 
 class ShopViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -51,6 +52,9 @@ class ShopViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _lastCompletedSaleId = MutableStateFlow<Long?>(null)
     val lastCompletedSaleId: StateFlow<Long?> = _lastCompletedSaleId.asStateFlow()
+
+    private val _isSubmittingSale = MutableStateFlow(false)
+    val isSubmittingSale: StateFlow<Boolean> = _isSubmittingSale.asStateFlow()
 
     fun addToCart(product: Product) {
         val current = _cartItems.value.toMutableList()
@@ -96,30 +100,40 @@ class ShopViewModel(application: Application) : AndroidViewModel(application) {
         _cartCustomer.value = customer
     }
 
-    fun completeSale(onSuccess: (Long) -> Unit) {
-        viewModelScope.launch {
-            val items = _cartItems.value
-            if (items.isEmpty()) return@launch
-            val subtotal = items.sumOf { it.lineTotal }
-            val discount = _cartDiscount.value
-            val total = (subtotal - discount).coerceAtLeast(0.0)
-            val customer = _cartCustomer.value
+    fun setDiscount(d: Double) {
+        _cartDiscount.value = d.coerceAtLeast(0.0)
+    }
 
-            val saleId = repository.completeSale(
-                items = items,
-                discount = discount,
-                paidAmount = total, // full payment default in POS, can be partial
-                paymentMethod = _cartPaymentMethod.value,
-                customerId = customer?.id,
-                customerName = customer?.name ?: "Walk-in Customer"
-            )
-            _lastCompletedSaleId.value = saleId
-            clearCart()
-            onSuccess(saleId)
+    fun completeSale(onSuccess: (Long) -> Unit) {
+        if (_isSubmittingSale.value) return
+        viewModelScope.launch {
+            _isSubmittingSale.value = true
+            try {
+                val items = _cartItems.value
+                if (items.isEmpty()) return@launch
+                val subtotal = items.sumOf { it.lineTotal }
+                val discount = _cartDiscount.value
+                val total = (subtotal - discount).coerceAtLeast(0.0)
+                val customer = _cartCustomer.value
+
+                val saleId = repository.completeSale(
+                    items = items,
+                    discount = discount,
+                    paidAmount = total,
+                    paymentMethod = _cartPaymentMethod.value,
+                    customerId = customer?.id,
+                    customerName = customer?.name ?: "Walk-in Customer"
+                )
+                _lastCompletedSaleId.value = saleId
+                clearCart()
+                onSuccess(saleId)
+            } finally {
+                _isSubmittingSale.value = false
+            }
         }
     }
 
-    // --- Customers & Suppliers ---
+    // --- Customers, Suppliers, Expenses, Sales, Movements ---
     val customers = repository.allCustomers.stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
     )
@@ -130,6 +144,9 @@ class ShopViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
     )
     val sales = repository.allSales.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
+    )
+    val saleItems = repository.allSaleItems.stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
     )
     val cashMovements = repository.allCashMovements.stateIn(
@@ -171,9 +188,21 @@ class ShopViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun deleteProduct(product: Product) {
+        viewModelScope.launch {
+            repository.deleteProduct(product)
+        }
+    }
+
     fun addCustomer(name: String, phone: String, address: String, initialDue: Double) {
         viewModelScope.launch {
             repository.addCustomer(Customer(name = name, phone = phone, address = address, totalDue = initialDue))
+        }
+    }
+
+    fun deleteCustomer(customer: Customer) {
+        viewModelScope.launch {
+            repository.deleteCustomer(customer)
         }
     }
 
@@ -189,6 +218,12 @@ class ShopViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun deleteSupplier(supplier: Supplier) {
+        viewModelScope.launch {
+            repository.deleteSupplier(supplier)
+        }
+    }
+
     fun paySupplier(supplierId: Long, amount: Double, method: String, note: String) {
         viewModelScope.launch {
             repository.paySupplier(supplierId, amount, method, note)
@@ -198,6 +233,36 @@ class ShopViewModel(application: Application) : AndroidViewModel(application) {
     fun addExpense(title: String, category: String, amount: Double, method: String) {
         viewModelScope.launch {
             repository.addExpense(Expense(title = title, category = category, amount = amount, paymentMethod = method))
+        }
+    }
+
+    fun deleteExpense(expense: Expense) {
+        viewModelScope.launch {
+            repository.deleteExpense(expense)
+        }
+    }
+
+    fun completeOnboarding(
+        shopName: String,
+        ownerName: String,
+        businessType: String,
+        currencySymbol: String,
+        language: String,
+        startingCash: Double,
+        loadSampleData: Boolean,
+        onComplete: () -> Unit
+    ) {
+        viewModelScope.launch {
+            repository.completeOnboarding(
+                shopName = shopName,
+                ownerName = ownerName,
+                businessType = businessType,
+                currencySymbol = currencySymbol,
+                language = language,
+                startingCash = startingCash,
+                loadSampleData = loadSampleData
+            )
+            onComplete()
         }
     }
 
@@ -226,14 +291,19 @@ class ShopViewModel(application: Application) : AndroidViewModel(application) {
 
     fun resetDemoData() {
         viewModelScope.launch {
+            repository.loadDemoMode()
+        }
+    }
+
+    fun clearToEmpty() {
+        viewModelScope.launch {
             repository.resetToFresh()
-            repository.seedInitialDemoContent()
         }
     }
 
     init {
         viewModelScope.launch {
-            repository.seedDemoDataIfEmpty()
+            repository.initializeProfileIfEmpty()
         }
     }
 }

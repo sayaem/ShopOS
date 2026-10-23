@@ -19,7 +19,7 @@ import com.example.shopos.data.model.*
         Expense::class,
         CashMovement::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class ShopDatabase : RoomDatabase() {

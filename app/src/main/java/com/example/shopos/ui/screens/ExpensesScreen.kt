@@ -16,7 +16,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -27,6 +26,7 @@ import com.example.shopos.ui.components.ShopOSTopBar
 import com.example.shopos.ui.theme.*
 import com.example.shopos.ui.viewmodel.ShopViewModel
 import com.example.shopos.util.Formatters
+import java.util.Calendar
 
 @Composable
 fun ExpensesScreen(
@@ -42,9 +42,31 @@ fun ExpensesScreen(
 
     val filterOptions = listOf("All", "Daily", "Monthly")
 
-    val filteredExpenses = remember(expenses, selectedFilter) {
-        // All expenses
-        expenses
+    val todayStartMillis = remember {
+        Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
+
+    val monthStartMillis = remember {
+        Calendar.getInstance().apply {
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
+
+    val filteredExpenses = remember(expenses, selectedFilter, todayStartMillis, monthStartMillis) {
+        when (selectedFilter) {
+            "Daily" -> expenses.filter { it.dateMillis >= todayStartMillis }
+            "Monthly" -> expenses.filter { it.dateMillis >= monthStartMillis }
+            else -> expenses
+        }
     }
 
     Box(
@@ -88,14 +110,46 @@ fun ExpensesScreen(
                 }
             }
 
-            // Expenses List
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(filteredExpenses, key = { it.id }) { expense ->
-                    ExpenseItemRow(expense = expense, currency = currency)
+            if (filteredExpenses.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Outlined.ReceiptLong,
+                            contentDescription = null,
+                            tint = ShopTextMuted,
+                            modifier = Modifier.size(44.dp)
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "No expenses recorded",
+                            style = MaterialTheme.typography.titleMedium.copy(color = ShopTextMedium)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Tap + below to record a business expense",
+                            style = MaterialTheme.typography.bodySmall.copy(color = ShopTextMuted)
+                        )
+                    }
+                }
+            } else {
+                // Expenses List
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(filteredExpenses, key = { it.id }) { expense ->
+                        ExpenseItemRow(
+                            expense = expense,
+                            currency = currency,
+                            onDelete = { viewModel.deleteExpense(expense) }
+                        )
+                    }
                 }
             }
         }
@@ -131,7 +185,11 @@ fun ExpensesScreen(
 }
 
 @Composable
-fun ExpenseItemRow(expense: Expense, currency: String) {
+fun ExpenseItemRow(
+    expense: Expense,
+    currency: String,
+    onDelete: () -> Unit
+) {
     val icon = when (expense.category.lowercase()) {
         "rent" -> Icons.Outlined.CalendarMonth
         "electricity" -> Icons.Outlined.ElectricBolt
@@ -173,7 +231,7 @@ fun ExpenseItemRow(expense: Expense, currency: String) {
                         )
                     )
                     Text(
-                        text = Formatters.formatDateShort(expense.dateMillis),
+                        text = "${Formatters.formatDateShort(expense.dateMillis)} • ${expense.paymentMethod}",
                         style = MaterialTheme.typography.bodySmall.copy(
                             color = ShopTextMuted,
                             fontSize = 11.sp
@@ -182,13 +240,27 @@ fun ExpenseItemRow(expense: Expense, currency: String) {
                 }
             }
 
-            Text(
-                text = Formatters.formatCurrency(expense.amount, currency),
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    color = ShopTextDark
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = Formatters.formatCurrency(expense.amount, currency),
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = ShopTextDark
+                    )
                 )
-            )
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Delete",
+                        tint = ShopTextMuted,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
         }
     }
 }

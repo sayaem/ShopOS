@@ -1,0 +1,5 @@
+{
+  "summary":  "Comprehensive audit of ShopOS codebase identifying the More-tab crash root cause, hardcoded data sources, dead controls, and a detailed phase-by-phase restoration plan.",
+  "updatedAt":  "2026-10-23T07:42:17.924685110Z",
+  "userFacing":  true
+}

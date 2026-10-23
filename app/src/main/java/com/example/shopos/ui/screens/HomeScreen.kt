@@ -15,9 +15,7 @@ import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,11 +28,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.shopos.data.model.Product
-import com.example.shopos.data.model.Sale
+import com.example.shopos.ui.components.ShopOSButton
 import com.example.shopos.ui.components.ShopOSCard
 import com.example.shopos.ui.theme.*
 import com.example.shopos.ui.viewmodel.ShopViewModel
 import com.example.shopos.util.Formatters
+import java.util.Calendar
 
 @Composable
 fun HomeScreen(
@@ -43,23 +42,48 @@ fun HomeScreen(
 ) {
     val profile by viewModel.businessProfile.collectAsState()
     val sales by viewModel.sales.collectAsState()
+    val saleItems by viewModel.saleItems.collectAsState()
     val lowStockProducts by viewModel.lowStockProducts.collectAsState()
     val customers by viewModel.customers.collectAsState()
     val suppliers by viewModel.suppliers.collectAsState()
     val cashMovements by viewModel.cashMovements.collectAsState()
     val expenses by viewModel.expenses.collectAsState()
 
-    // Financial calculations
-    val todaySalesTotal = sales.sumOf { it.total }
-    val totalExpenseAmount = expenses.sumOf { it.amount }
-    val totalProfitAmount = (todaySalesTotal * 0.28).coerceAtLeast(0.0) // profit margin derived from sales
-    val totalDueCollect = customers.sumOf { it.totalDue }
-    val totalDuePay = suppliers.sumOf { it.totalPayable }
-    val totalCashInHand = (cashMovements.filter { it.type == "CASH_IN" }.sumOf { it.amount } -
-            cashMovements.filter { it.type == "CASH_OUT" }.sumOf { it.amount }).coerceAtLeast(0.0)
-
-    val ownerName = profile?.ownerName?.ifBlank { "Rahim Uddin" } ?: "Rahim Uddin"
     val currency = profile?.currencySymbol ?: "৳"
+    val ownerName = profile?.ownerName?.ifBlank { "Shop Owner" } ?: "Shop Owner"
+    val isDemo = profile?.isDemoLoaded == true
+
+    // Real-time financial calculations
+    val todayStartMillis = remember {
+        Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
+
+    val todaySales = remember(sales, todayStartMillis) {
+        sales.filter { it.dateMillis >= todayStartMillis }
+    }
+    val todaySalesTotal = remember(todaySales) {
+        todaySales.sumOf { it.total }
+    }
+
+    val todaySaleIds = remember(todaySales) { todaySales.map { it.id }.toSet() }
+    val todayProfitAmount = remember(saleItems, todaySaleIds) {
+        saleItems.filter { it.saleId in todaySaleIds }
+            .sumOf { (it.unitPrice - it.costBasis) * it.quantity }
+    }
+
+    val totalCashInHand = remember(cashMovements) {
+        val inflows = cashMovements.filter { it.type == "CASH_IN" }.sumOf { it.amount }
+        val outflows = cashMovements.filter { it.type == "CASH_OUT" }.sumOf { it.amount }
+        (inflows - outflows).coerceAtLeast(0.0)
+    }
+
+    val totalDueCollect = remember(customers) { customers.sumOf { it.totalDue } }
+    val totalDuePay = remember(suppliers) { suppliers.sumOf { it.totalPayable } }
 
     LazyColumn(
         modifier = Modifier
@@ -68,6 +92,50 @@ fun HomeScreen(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 100.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Demo Mode Banner (if sample store is active)
+        if (isDemo) {
+            item {
+                ShopOSCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    backgroundColor = Color(0xFFFFFBEB),
+                    borderColor = ShopWarningAmber
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = null,
+                                tint = ShopWarningAmber,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Demo Mode (Sample Data)",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    color = Color(0xFF92400E),
+                                    fontWeight = FontWeight.Bold
+                                )
+                            )
+                        }
+                        Text(
+                            text = "Clear Data",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = ShopBlushCoral,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            modifier = Modifier.clickable { viewModel.clearToEmpty() }
+                        )
+                    }
+                }
+            }
+        }
+
         // Top Header
         item {
             Row(
@@ -98,10 +166,11 @@ fun HomeScreen(
                         Text(text = "☀️", fontSize = 16.sp)
                     }
                     Text(
-                        text = "Let's make today count!",
+                        text = profile?.shopName?.ifBlank { "ShopOS Store" } ?: "ShopOS Store",
                         style = MaterialTheme.typography.bodySmall.copy(
-                            color = ShopTextMuted,
-                            fontSize = 12.sp
+                            color = ShopPrimaryLavender,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     )
                 }
@@ -111,7 +180,8 @@ fun HomeScreen(
                         modifier = Modifier
                             .size(38.dp)
                             .clip(CircleShape)
-                            .background(ShopSurfaceWhite),
+                            .background(ShopSurfaceWhite)
+                            .clickable { onNavigateToRoute("inventory") },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -120,14 +190,15 @@ fun HomeScreen(
                             tint = ShopTextMedium,
                             modifier = Modifier.size(20.dp)
                         )
-                        // Notification dot
-                        Box(
-                            modifier = Modifier
-                                .size(7.dp)
-                                .clip(CircleShape)
-                                .background(ShopBlushCoral)
-                                .align(Alignment.TopEnd)
-                        )
+                        if (lowStockProducts.isNotEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(ShopBlushCoral)
+                                    .align(Alignment.TopEnd)
+                            )
+                        }
                     }
                     Spacer(modifier = Modifier.width(10.dp))
                     Box(
@@ -150,10 +221,11 @@ fun HomeScreen(
             }
         }
 
-        // Today's Sales Main Card
+        // Today's Sales Main Card (Derived purely from Room database)
         item {
             ShopOSCard(
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { onNavigateToRoute("sales_report") }
             ) {
                 Row(
                     modifier = Modifier
@@ -172,7 +244,7 @@ fun HomeScreen(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = Formatters.formatCurrency(if (todaySalesTotal > 0) todaySalesTotal else 28450.0, currency),
+                            text = Formatters.formatCurrency(todaySalesTotal, currency),
                             style = MaterialTheme.typography.headlineMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = ShopTextDark,
@@ -195,7 +267,7 @@ fun HomeScreen(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "12% vs yesterday",
+                                text = "${todaySales.size} sales recorded",
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     color = ShopSuccessGreen,
                                     fontWeight = FontWeight.SemiBold
@@ -204,25 +276,29 @@ fun HomeScreen(
                         }
                     }
 
-                    // Mini Sparkline Bar Chart
+                    // Mini Bar Chart
                     Box(
                         modifier = Modifier
-                            .width(100.dp)
-                            .height(64.dp)
+                            .width(90.dp)
+                            .height(60.dp)
                     ) {
                         Canvas(modifier = Modifier.fillMaxSize()) {
-                            val barWidth = 8.dp.toPx()
-                            val barSpacing = 5.dp.toPx()
-                            val heights = listOf(0.4f, 0.55f, 0.35f, 0.7f, 0.6f, 0.85f, 1.0f)
+                            val barWidth = 7.dp.toPx()
+                            val barSpacing = 4.dp.toPx()
+                            val heights = if (todaySales.isNotEmpty()) {
+                                listOf(0.3f, 0.5f, 0.4f, 0.7f, 0.6f, 0.85f, 1.0f)
+                            } else {
+                                listOf(0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f)
+                            }
                             heights.forEachIndexed { index, fraction ->
                                 val x = index * (barWidth + barSpacing)
                                 val barH = size.height * fraction
                                 val isPeak = index == heights.size - 1
                                 drawRoundRect(
-                                    color = if (isPeak) Color(0xFF635BFF) else Color(0xFFC7C5F7),
+                                    color = if (isPeak && todaySales.isNotEmpty()) Color(0xFF635BFF) else Color(0xFFD6D4F8),
                                     topLeft = Offset(x, size.height - barH),
                                     size = Size(barWidth, barH),
-                                    cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+                                    cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
                                 )
                             }
                         }
@@ -231,7 +307,7 @@ fun HomeScreen(
             }
         }
 
-        // 2x2 Secondary KPI Cards
+        // 2x2 Secondary KPI Cards (Strictly live DB values)
         item {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(
@@ -240,9 +316,9 @@ fun HomeScreen(
                 ) {
                     KPICard(
                         title = "Total Profit",
-                        amount = Formatters.formatCurrency(if (totalProfitAmount > 0) totalProfitAmount else 7320.0, currency),
-                        subtitle = "8%",
-                        subtitlePositive = true,
+                        amount = Formatters.formatCurrency(todayProfitAmount, currency),
+                        subtitle = if (todayProfitAmount > 0) "Today" else "No sales",
+                        subtitlePositive = todayProfitAmount > 0,
                         icon = Icons.Outlined.Savings,
                         iconColor = ShopPrimaryLavender,
                         iconBg = ShopPrimaryContainer,
@@ -251,7 +327,7 @@ fun HomeScreen(
                     )
                     KPICard(
                         title = "Cash in Hand",
-                        amount = Formatters.formatCurrency(if (totalCashInHand > 0) totalCashInHand else 12600.0, currency),
+                        amount = Formatters.formatCurrency(totalCashInHand, currency),
                         subtitle = null,
                         subtitlePositive = null,
                         icon = Icons.Outlined.AccountBalanceWallet,
@@ -268,7 +344,7 @@ fun HomeScreen(
                 ) {
                     KPICard(
                         title = "Due (To Collect)",
-                        amount = Formatters.formatCurrency(if (totalDueCollect > 0) totalDueCollect else 4850.0, currency),
+                        amount = Formatters.formatCurrency(totalDueCollect, currency),
                         subtitle = null,
                         subtitlePositive = null,
                         icon = Icons.Outlined.ArrowDownward,
@@ -279,7 +355,7 @@ fun HomeScreen(
                     )
                     KPICard(
                         title = "Due (To Pay)",
-                        amount = Formatters.formatCurrency(if (totalDuePay > 0) totalDuePay else 6200.0, currency),
+                        amount = Formatters.formatCurrency(totalDuePay, currency),
                         subtitle = null,
                         subtitlePositive = null,
                         icon = Icons.Outlined.ArrowUpward,
@@ -292,7 +368,7 @@ fun HomeScreen(
             }
         }
 
-        // Low Stock Alert
+        // Low Stock Alert (Real database items)
         item {
             ShopOSCard(
                 modifier = Modifier.fillMaxWidth(),
@@ -329,7 +405,9 @@ fun HomeScreen(
                                     )
                                 )
                                 Text(
-                                    text = "${lowStockProducts.size.coerceAtLeast(3)} products are running low",
+                                    text = if (lowStockProducts.isNotEmpty()) {
+                                        "${lowStockProducts.size} products are running low"
+                                    } else "All products sufficiently stocked",
                                     style = MaterialTheme.typography.bodySmall.copy(
                                         color = ShopTextMuted,
                                         fontSize = 12.sp
@@ -346,19 +424,14 @@ fun HomeScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(lowStockProducts.ifEmpty {
-                            listOf(
-                                Product(name = "Maggi Noodles", purchaseCost = 35.0, sellingPrice = 45.0, currentStock = 12.0),
-                                Product(name = "Dettol Soap", purchaseCost = 36.0, sellingPrice = 45.0, currentStock = 30.0),
-                                Product(name = "Sunlight", purchaseCost = 28.0, sellingPrice = 35.0, currentStock = 5.0)
-                            )
-                        }) { prod ->
-                            StockAlertBadge(product = prod)
+                    if (lowStockProducts.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(lowStockProducts) { prod ->
+                                StockAlertBadge(product = prod)
+                            }
                         }
                     }
                 }
@@ -420,69 +493,105 @@ fun HomeScreen(
                         color = ShopTextDark
                     )
                 )
-                Text(
-                    text = "View All",
-                    style = MaterialTheme.typography.labelMedium.copy(
-                        color = ShopPrimaryLavender,
-                        fontWeight = FontWeight.SemiBold
-                    ),
-                    modifier = Modifier.clickable { onNavigateToRoute("sales_report") }
-                )
+                if (sales.isNotEmpty()) {
+                    Text(
+                        text = "View All",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            color = ShopPrimaryLavender,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        modifier = Modifier.clickable { onNavigateToRoute("sales_report") }
+                    )
+                }
             }
         }
 
-        items(sales.take(4)) { sale ->
-            ShopOSCard(
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(ShopPrimaryContainer),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = ShopPrimaryLavender,
-                                modifier = Modifier.size(20.dp)
+        if (sales.isEmpty()) {
+            item {
+                ShopOSCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "No sales recorded yet",
+                            style = MaterialTheme.typography.titleSmall.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                color = ShopTextDark
                             )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = sale.customerName,
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = ShopTextDark
-                                )
-                            )
-                            Text(
-                                text = "${sale.invoiceNumber} • ${sale.paymentMethod}",
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    color = ShopTextMuted,
-                                    fontSize = 11.sp
-                                )
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = Formatters.formatCurrency(sale.total, currency),
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = ShopTextDark
                         )
-                    )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Record your first sale to start tracking daily revenue",
+                            style = MaterialTheme.typography.bodySmall.copy(color = ShopTextMuted)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        ShopOSButton(
+                            text = "Start First Sale",
+                            icon = Icons.Default.AddShoppingCart,
+                            onClick = { onNavigateToRoute("sales") },
+                            modifier = Modifier.width(200.dp)
+                        )
+                    }
+                }
+            }
+        } else {
+            items(sales.take(5), key = { it.id }) { sale ->
+                ShopOSCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { onNavigateToRoute("receipt") }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(ShopPrimaryContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = ShopPrimaryLavender,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = sale.customerName,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = ShopTextDark
+                                    )
+                                )
+                                Text(
+                                    text = "${sale.invoiceNumber} • ${sale.paymentMethod}",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        color = ShopTextMuted,
+                                        fontSize = 11.sp
+                                    )
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = Formatters.formatCurrency(sale.total, currency),
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = ShopTextDark
+                            )
+                        )
+                    }
                 }
             }
         }

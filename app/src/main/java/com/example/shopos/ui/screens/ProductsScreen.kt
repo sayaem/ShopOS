@@ -168,6 +168,10 @@ fun ProductsScreen(
                 onConfirm = { delta, reason, note ->
                     viewModel.adjustStock(product.id, delta, reason, note)
                     selectedProductForAdjustment = null
+                },
+                onDelete = {
+                    viewModel.deleteProduct(product)
+                    selectedProductForAdjustment = null
                 }
             )
         }
@@ -272,7 +276,8 @@ fun AdjustStockDialog(
     product: Product,
     currency: String,
     onDismiss: () -> Unit,
-    onConfirm: (Double, String, String) -> Unit
+    onConfirm: (Double, String, String) -> Unit,
+    onDelete: (() -> Unit)? = null
 ) {
     var deltaText by remember { mutableStateOf("10") }
     var isAddition by remember { mutableStateOf(true) }
@@ -283,14 +288,14 @@ fun AdjustStockDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "Adjust Stock: ${product.name}",
+                text = "Product: ${product.name}",
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
             )
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "Current Stock: ${product.currentStock.toInt()} ${product.unit}",
+                    text = "Current Stock: ${product.currentStock.toInt()} ${product.unit} • Selling Price: ${Formatters.formatCurrency(product.sellingPrice, currency)}",
                     style = MaterialTheme.typography.bodyMedium.copy(color = ShopTextMedium)
                 )
 
@@ -335,6 +340,16 @@ fun AdjustStockDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                if (onDelete != null) {
+                    TextButton(
+                        onClick = onDelete,
+                        colors = ButtonDefaults.textButtonColors(contentColor = ShopBlushCoral),
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                    ) {
+                        Text("Delete Product", fontWeight = FontWeight.SemiBold)
+                    }
+                }
             }
         },
         confirmButton = {
